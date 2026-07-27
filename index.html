@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Flappy Bird · Seasons</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="game-container">
+    <div class="canvas-wrap">
+      <canvas id="game"></canvas>
+
+      <!-- Start screen -->
+      <div id="start-screen" class="overlay">
+        <h1>FLAPPY BIRD</h1>
+        <p class="season-sub">Four seasons await as you score</p>
+        <p class="hint">Tap, click, or press <kbd>Space</kbd> to flap</p>
+        <button id="start-btn" class="btn">START</button>
+        <p class="best">Best: <span id="best-start">0</span></p>
+      </div>
+
+      <!-- Game over screen -->
+      <div id="over-screen" class="overlay hidden">
+        <h2>GAME OVER</h2>
+        <div class="scoreboard">
+          <div class="score-row"><span>Score</span><span id="final-score">0</span></div>
+          <div class="score-row"><span>Best</span><span id="final-best">0</span></div>
+        </div>
+        <button id="restart-btn" class="btn">RETRY</button>
+      </div>
+
+      <!-- Live score + season indicator -->
+      <div id="live-score" class="live-score hidden">0</div>
+      <div id="season-tag" class="season-tag hidden">Spring</div>
+      <div id="season-toast" class="season-toast hidden"></div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>

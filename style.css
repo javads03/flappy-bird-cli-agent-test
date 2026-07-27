@@ -1,0 +1,195 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: #4ec0ca;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Full-window layout */
+.game-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Overlays */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  background: rgba(0,0,0,0.32);
+  color: #fff;
+  padding: 24px;
+  backdrop-filter: blur(2px);
+}
+
+.overlay.hidden { display: none; }
+
+.overlay h1 {
+  font-size: clamp(34px, 7vw, 64px);
+  letter-spacing: 3px;
+  color: #ffcf3f;
+  text-shadow: 3px 3px 0 #b5730f, -1px -1px 0 rgba(0,0,0,0.3);
+}
+
+.overlay h2 {
+  font-size: clamp(30px, 6vw, 54px);
+  letter-spacing: 2px;
+  color: #ff5a5a;
+  text-shadow: 3px 3px 0 #8b0000;
+}
+
+.season-sub {
+  font-size: clamp(13px, 2.4vw, 18px);
+  letter-spacing: 1px;
+  color: #eafbe6;
+  opacity: 0.95;
+}
+
+.hint {
+  font-size: clamp(13px, 2.5vw, 17px);
+  opacity: 0.92;
+}
+
+.hint kbd {
+  background: #fff;
+  color: #333;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 13px;
+  box-shadow: 0 2px 0 #999;
+}
+
+.btn {
+  font-family: inherit;
+  font-size: clamp(18px, 3.4vw, 22px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  background: linear-gradient(180deg, #ffb43f 0%, #f5941a 100%);
+  border: none;
+  border-radius: 10px;
+  padding: 12px 40px;
+  cursor: pointer;
+  box-shadow: 0 5px 0 #b5730f, 0 8px 14px rgba(0,0,0,0.3);
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+
+.btn:hover { filter: brightness(1.05); }
+
+.btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #b5730f, 0 3px 6px rgba(0,0,0,0.3);
+}
+
+.best {
+  font-size: clamp(15px, 2.8vw, 19px);
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+.scoreboard {
+  background: rgba(255,255,255,0.12);
+  border: 2px solid rgba(255,255,255,0.25);
+  border-radius: 12px;
+  padding: 14px 30px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: clamp(18px, 3.4vw, 24px);
+  font-weight: 700;
+}
+
+.score-row span:first-child { opacity: 0.8; font-size: clamp(14px, 2.6vw, 17px); font-weight: 600; }
+
+/* Live score during play */
+.live-score {
+  position: absolute;
+  top: 4vh;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(40px, 9vw, 64px);
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+
+.live-score.hidden { display: none; }
+
+/* Season indicator badge */
+.season-tag {
+  position: absolute;
+  top: 4vh;
+  left: 4vh;
+  font-size: clamp(13px, 2.6vw, 17px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  background: rgba(0,0,0,0.28);
+  border: 1px solid rgba(255,255,255,0.3);
+  padding: 6px 14px;
+  border-radius: 999px;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+
+.season-tag.hidden { display: none; }
+
+/* Season-change toast */
+.season-toast {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  font-size: clamp(34px, 8vw, 72px);
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: #fff;
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.45), 0 0 22px rgba(255,255,255,0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.18, 0.9, 0.3, 1.2);
+  white-space: nowrap;
+}
+
+.season-toast.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.season-toast.hidden { display: none; }

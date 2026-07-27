@@ -1,0 +1,12 @@
+# Dependencies / cloned tooling
+node_modules/
+.opencode/
+.sarvam/
+
+# Scratch / test outputs
+output.txt
+test-output.txt
+
+# OS / editor
+.DS_Store
+*.swp
