@@ -27,12 +27,40 @@
       <!-- Game over screen -->
       <div id="over-screen" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="over-title">
         <h2 id="over-title">GAME OVER</h2>
+        <div class="medal-wrap" aria-hidden="true"><div id="medal" class="medal"></div><span id="medal-label" class="medal-label"></span></div>
         <div class="scoreboard" role="group" aria-label="Final score">
           <div class="score-row"><span>Score</span><span id="final-score">0</span></div>
           <div class="score-row"><span>Best</span><span id="final-best">0</span></div>
+          <div class="score-row"><span>Coins</span><span id="final-coins">0</span></div>
+          <div class="score-row"><span>Best Combo</span><span id="final-combo">0</span></div>
         </div>
         <button id="restart-btn" class="btn" type="button" aria-label="Play again">RETRY</button>
       </div>
+
+      <!-- Pause screen -->
+      <div id="pause-screen" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+        <h2 id="pause-title">PAUSED</h2>
+        <p class="hint">Press <kbd>P</kbd> or <kbd>Esc</kbd> to resume</p>
+        <button id="resume-btn" class="btn" type="button" aria-label="Resume game">RESUME</button>
+      </div>
+
+      <!-- Top-left HUD: lives + coins -->
+      <div id="hud-left" class="hud-left hidden" aria-hidden="true">
+        <div id="lives" class="lives"></div>
+        <div id="coins" class="coins"></div>
+      </div>
+
+      <!-- Top-right controls -->
+      <div id="hud-right" class="hud-right hidden">
+        <button id="pause-btn" class="icon-btn" type="button" aria-label="Pause game (P)">⏸</button>
+        <button id="mute-btn" class="icon-btn" type="button" aria-label="Toggle sound (M)">🔊</button>
+      </div>
+
+      <!-- Power-up status pills -->
+      <div id="powerup-bar" class="powerup-bar hidden" aria-hidden="true"></div>
+
+      <!-- Auto-pilot indicator -->
+      <div id="autopilot-tag" class="autopilot-tag hidden" aria-hidden="true">AUTO-PILOT</div>
 
       <!-- Live score + season indicator -->
       <div id="live-score" class="live-score hidden" role="status" aria-live="polite" aria-atomic="true" aria-label="Current score">0</div>

@@ -18,6 +18,39 @@
   const TAU = Math.PI * 2;          // full circle — end angle for every ellipse()/arc() call below
   const PIPE_MARGIN = 60;           // min base-px gap between a pipe opening and the playfield edges
   const BEST_KEY = "flappy_best";   // localStorage key for the persisted high score
+  const COIN_KEY = "flappy_coins";  // localStorage key for the persisted coin wallet
+  const MUTE_KEY = "flappy_muted";  // localStorage key for the sound mute preference
+
+  // ---- Lives, power-ups, coins & combos: tuning ----
+  const LIFE_MAX = 5;               // starting lives per run
+  const INVULN_FRAMES = 90;          // ~1.5s invulnerability grace after losing a life (60fps units)
+  const COIN_R = 9;                  // coin radius in base units
+  const POWERUP_R = 13;              // power-up pickup radius in base units
+  const POWERUP_TYPES = ["shield", "slow", "magnet", "mini", "double"];
+  const POWERUP_DUR = 360;           // ~6s duration for timed power-ups
+  const POWERUP_COOLDOWN = 240;      // min frames between power-up spawns
+  const SLOW_FACTOR = 0.45;          // world speed multiplier during slow-mo
+  const MAGNET_RADIUS = 130;         // coin-attract radius in base units
+  const MINI_SCALE = 0.62;           // bird render + hitbox scale during mini-bird
+  const PERFECT_RADIUS = 16;         // gap-center distance (base) for a "perfect" pass
+  const SHAKE_DECAY = 0.86;          // per-frame screen-shake decay (multiplicative)
+  const CHEAT_CODE = "flyfly";       // typed sequence that toggles auto-pilot
+
+  // Power-up metadata: emoji, label, HUD pill bar colour.
+  const POWER_META = {
+    shield: { icon: "🛡", label: "Shield",  bar: "#7fe3ff" },
+    slow:   { icon: "⏱", label: "Slow-Mo", bar: "#ffd33f" },
+    magnet: { icon: "🧲", label: "Magnet",  bar: "#ff8fc0" },
+    mini:   { icon: "🔅", label: "Mini",    bar: "#ffe066" },
+    double: { icon: "✨", label: "2× Score",bar: "#b08bff" }
+  };
+  // Medal tiers, lowest-priority last; first to match wins in medalFor().
+  const MEDALS = [
+    { name: "Platinum", min: 40, c1: "#e0f7ff", c2: "#7fe3ff", icon: "🏆" },
+    { name: "Gold",     min: 25, c1: "#ffe066", c2: "#b5730f", icon: "🥇" },
+    { name: "Silver",   min: 12, c1: "#e8e8e8", c2: "#9a9a9a", icon: "🥈" },
+    { name: "Bronze",   min: 3,  c1: "#e68b3a", c2: "#7a3d12", icon: "🥉" }
+  ];
 
   /**
    * Resize the canvas to the window, apply DPR scaling, and clamp entities to the new playfield.
@@ -82,19 +115,33 @@
     BIRD_W = BASE.BIRD_W * scale;
   }
 
-  const STATE = { START: 0, PLAYING: 1, OVER: 2 };
+  const STATE = { START: 0, PLAYING: 1, OVER: 2, PAUSED: 3 };
 
   // ============================================================
-  //  DOM references (overlay / score / season UI elements)
+  //  DOM references (overlay / score / season / HUD / power-up UI)
   // ============================================================
   const startScreen = document.getElementById("start-screen");
   const overScreen  = document.getElementById("over-screen");
+  const pauseScreen = document.getElementById("pause-screen");
   const liveScoreEl = document.getElementById("live-score");
   const finalScoreEl = document.getElementById("final-score");
   const finalBestEl  = document.getElementById("final-best");
+  const finalCoinsEl = document.getElementById("final-coins");
+  const finalComboEl = document.getElementById("final-combo");
   const bestStartEl  = document.getElementById("best-start");
   const seasonTagEl  = document.getElementById("season-tag");
   const toastEl      = document.getElementById("season-toast");
+  const livesEl     = document.getElementById("lives");
+  const coinsEl     = document.getElementById("coins");
+  const hudLeftEl    = document.getElementById("hud-left");
+  const hudRightEl   = document.getElementById("hud-right");
+  const powerupBarEl = document.getElementById("powerup-bar");
+  const autopilotTagEl = document.getElementById("autopilot-tag");
+  const muteBtn    = document.getElementById("mute-btn");
+  const pauseBtn   = document.getElementById("pause-btn");
+  const resumeBtn  = document.getElementById("resume-btn");
+  const medalEl     = document.getElementById("medal");
+  const medalLabelEl = document.getElementById("medal-label");
 
   // ============================================================
   //  Seasons
@@ -389,13 +436,341 @@
   let state = STATE.START;
   let bird, pipes, groundX, score, best, frames, flash, flapAnim;
 
+  // New-system live state. See resetGame()/startGame() for (re)initialisation.
+  let lives, invuln;                  // lives remaining + invulnerability countdown
+  let runCoins, coinTotal;           // coins earned this run / persisted wallet
+  let pickups;                        // active coins + power-up entities
+  let combo, bestCombo;              // consecutive perfect passes / run peak
+  let shield;                         // boolean: shield charge available
+  let slowTimer, magnetTimer, miniTimer, doubleTimer;   // power-up timers (frames)
+  let powerCooldown;                 // frames until a new power-up may spawn
+  let popups;                         // floating text entries ("+1", "PERFECT")
+  let bursts;                         // short-lived spark particles (coin/death fx)
+  let shake;                          // current screen-shake intensity
+  let autopilot;                      // cheat auto-pilot active?
+  let cargo = "";                     // accumulated keypresses for cheat detection
+  let muted = false;                  // sound muted (persisted via MUTE_KEY)
+
+  // ============================================================
+  //  Sound — synthesised Web Audio SFX (no asset files)
+  // ============================================================
+  // Browsers suspend AudioContext until a user gesture; resumeSfx() is called
+  // from onFlap()/startGame() so the first tap unlocks audio.
+  let actx = null;
+  function getAudio() {
+    if (!actx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) actx = new AC();
+    }
+    return actx;
+  }
+  /** Play one synthesised tone with an optional frequency sweep.
+   *  @param {Object} o {freq, freq2?, type?, dur?, vol?, delay?} */
+  function tone(o) {
+    if (muted) return;
+    const ac = getAudio(); if (!ac || ac.state === "closed") return;
+    const t0 = ac.currentTime + (o.delay || 0);
+    const dur = o.dur || 0.15;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = o.type || "square";
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if (o.freq2) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.freq2), t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(o.vol || 0.2, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.03);
+  }
+  /** Short filtered noise burst, for thuds / impacts. */
+  function noiseBurst(dur, vol) {
+    if (muted) return;
+    const ac = getAudio(); if (!ac || ac.state === "closed") return;
+    const t0 = ac.currentTime;
+    const len = Math.max(1, Math.floor(ac.sampleRate * dur));
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const filt = ac.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 800;
+    const g = ac.createGain(); g.gain.value = vol || 0.25;
+    src.connect(filt); filt.connect(g); g.connect(ac.destination);
+    src.start(t0);
+  }
+  /** Collection of named sound effects. */
+  const SFX = {
+    flap:   function () { tone({ freq: 520, freq2: 760, type: "square",  dur: 0.1,  vol: 0.12 }); },
+    coin:   function () { tone({ freq: 988, freq2: 1480, type: "triangle", dur: 0.12, vol: 0.18 }); },
+    score:  function (c) { const b = 660 + Math.min(c, 8) * 50; tone({ freq: b, freq2: b * 1.5, type: "triangle", dur: 0.13, vol: 0.16 }); },
+    power:  function () { tone({ freq: 440, freq2: 990, type: "sawtooth", dur: 0.3, vol: 0.16 }); },
+    season: function () { tone({ freq: 523, dur: 0.35, vol: 0.12, type: "triangle" }); tone({ freq: 659, dur: 0.35, vol: 0.12, type: "triangle", delay: 0.08 }); tone({ freq: 784, dur: 0.45, vol: 0.12, type: "triangle", delay: 0.16 }); },
+    life:   function () { tone({ freq: 392, freq2: 130, type: "triangle", dur: 0.24, vol: 0.2 }); noiseBurst(0.12, 0.15); },
+    brk:    function () { tone({ freq: 620, freq2: 200, type: "square", dur: 0.18, vol: 0.18 }); noiseBurst(0.1, 0.12); },
+    over:   function () { tone({ freq: 330, freq2: 70, type: "sawtooth", dur: 0.5, vol: 0.22, delay: 0.05 }); },
+    medal:  function () { tone({ freq: 784, dur: 0.15, vol: 0.18, type: "triangle" }); tone({ freq: 1047, dur: 0.3, vol: 0.18, type: "triangle", delay: 0.12 }); },
+    pause:  function () { tone({ freq: 420, dur: 0.08, vol: 0.12, type: "square" }); }
+  };
+  /** Unlock the AudioContext on a user gesture. */
+  function resumeSfx() { const ac = getAudio(); if (ac && ac.state === "suspended") ac.resume(); }
+
+  // ============================================================
+  //  Persistence helpers (best score, coin wallet, mute pref)
+  // ============================================================
+  function loadBest() {
+    try { return parseInt(localStorage.getItem(BEST_KEY), 10) || 0; }
+    catch (e) { return 0; }
+  }
+  function saveBest(v) {
+    try { localStorage.setItem(BEST_KEY, String(v)); }
+    catch (e) { /* best-effort: persistence must never crash the game loop */ }
+  }
+  function loadCoins() { try { return parseInt(localStorage.getItem(COIN_KEY), 10) || 0; } catch (e) { return 0; } }
+  function saveCoins(v) { try { localStorage.setItem(COIN_KEY, String(v)); } catch (e) { /* best-effort */ } }
+  function loadMuted() { try { return localStorage.getItem(MUTE_KEY) === "1"; } catch (e) { return false; } }
+  function saveMuted(v) { try { localStorage.setItem(MUTE_KEY, v ? "1" : "0"); } catch (e) { /* best-effort */ } }
+
+  // ============================================================
+  //  Lives, coins, pickups, power-ups, combos, juice, cheat
+  // ============================================================
+  /** Effective bird collision radius (shrinks while Mini is active). */
+  function birdRadius() { return (miniTimer > 0) ? BIRD_R * MINI_SCALE : BIRD_R; }
+
+  /** Return the medal earned for a given score, or null. */
+  function medalFor(s) { for (let i = 0; i < MEDALS.length; i++) if (s >= MEDALS[i].min) return MEDALS[i]; return null; }
+
+  /** Decide, for a freshly spawned pipe, whether to drop a coin or power-up. */
+  function maybeSpawnPickup(pipe) {
+    const cx = pipe.x + PIPE_W / 2;
+    const cy = (pipe.gapTop + pipe.gapBottom) / 2;
+    if (powerCooldown <= 0 && Math.random() < 0.22) {
+      pickups.push({ kind: "power", type: POWERUP_TYPES[(Math.random() * POWERUP_TYPES.length) | 0], x: cx, y: cy, r: POWERUP_R * scale });
+      powerCooldown = POWERUP_COOLDOWN;
+    } else if (Math.random() < 0.55) {
+      pickups.push({ kind: "coin", x: cx, y: cy, r: COIN_R * scale, bob: Math.random() * TAU });
+    }
+  }
+
+  function updatePickups(dt) {
+    for (let i = pickups.length - 1; i >= 0; i--) {
+      const k = pickups[i];
+      k.x -= PIPE_SPEED * dt;
+      if (k.kind === "coin") { k.bob += 0.08 * dt; k.y += Math.sin(k.bob) * 0.5 * scale * dt; }
+      if (k.x + k.r < -40) pickups.splice(i, 1);
+    }
+  }
+
+  function collectPickups() {
+    const r = birdRadius();
+    if (magnetTimer > 0) {
+      const mr = MAGNET_RADIUS * scale;
+      for (const k of pickups) {
+        if (k.dead) continue;
+        const dx = bird.x - k.x, dy = bird.y - k.y, d = Math.hypot(dx, dy);
+        if (d < mr && d > 0.1) { k.x += dx / d * 4 * scale; k.y += dy / d * 4 * scale; }
+      }
+    }
+    for (let i = pickups.length - 1; i >= 0; i--) {
+      const k = pickups[i];
+      const d = Math.hypot(bird.x - k.x, bird.y - k.y);
+      if (d < r + k.r) {
+        if (k.kind === "coin") {
+          runCoins++; coinsEl.textContent = "🪙 " + runCoins; SFX.coin(); spawnBurst(k.x, k.y, "#ffd33f", 10);
+        } else {
+          applyPowerup(k.type); SFX.power(); spawnBurst(k.x, k.y, (POWER_META[k.type] || POWER_META.shield).bar, 16);
+        }
+        pickups.splice(i, 1);
+      }
+    }
+  }
+
+  function applyPowerup(type) {
+    if (type === "shield") shield = true;
+    else if (type === "slow") slowTimer = POWERUP_DUR;
+    else if (type === "magnet") magnetTimer = POWERUP_DUR;
+    else if (type === "mini") miniTimer = POWERUP_DUR;
+    else if (type === "double") doubleTimer = POWERUP_DUR;
+    addPopup((POWER_META[type].label).toUpperCase() + "!", bird.x, bird.y - 24 * scale, (POWER_META[type]).bar);
+  }
+
+  function updatePowerHud() {
+    let html = "";
+    const pill = function (type, remaining) {
+      const m = POWER_META[type];
+      const pct = Math.max(0, remaining / POWERUP_DUR);
+      html += '<div class="pu-pill bar-' + type + '"><span class="pu-icon">' + m.icon + '</span>' +
+              '<span class="pu-name">' + m.label + '</span><span class="pu-time">' + Math.ceil(remaining / 60) + 's</span>' +
+              '<span class="pu-bar" style="width:' + (pct * 100).toFixed(0) + '%"></span></div>';
+    };
+    if (shield) {
+      const m = POWER_META.shield;
+      html += '<div class="pu-pill bar-shield"><span class="pu-icon">' + m.icon + '</span><span class="pu-name">' + m.label + '</span><span class="pu-time">READY</span><span class="pu-bar" style="width:100%"></span></div>';
+    }
+    if (slowTimer > 0) pill("slow", slowTimer);
+    if (magnetTimer > 0) pill("magnet", magnetTimer);
+    if (miniTimer > 0) pill("mini", miniTimer);
+    if (doubleTimer > 0) pill("double", doubleTimer);
+    if (html) { powerupBarEl.classList.remove("hidden"); powerupBarEl.innerHTML = html; }
+    else { powerupBarEl.classList.add("hidden"); powerupBarEl.innerHTML = ""; }
+  }
+
+  // ---- Floating text popups + spark bursts ----
+  function addPopup(text, x, y, color) {
+    popups.push({ text: text, x: x, y: y, vy: -1.2 * scale, life: 60, max: 60, color: color || "#fff" });
+  }
+  function updatePopups(dt) {
+    for (let i = popups.length - 1; i >= 0; i--) {
+      const p = popups[i]; p.y += p.vy * dt; p.life -= dt;
+      if (p.life <= 0) popups.splice(i, 1);
+    }
+  }
+  function drawPopups() {
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "bold " + (16 * scale) + "px system-ui, sans-serif";
+    for (const p of popups) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 3 * scale;
+      ctx.strokeText(p.text, p.x, p.y); ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  function spawnBurst(x, y, color, n) {
+    const s = scale;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, sp = (1 + Math.random() * 3) * s;
+      bursts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 30 + Math.random() * 20, max: 50, color: color });
+    }
+  }
+  function updateBursts(dt) {
+    for (let i = bursts.length - 1; i >= 0; i--) {
+      const b = bursts[i];
+      b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 0.15 * scale * dt; b.vx *= 0.96; b.life -= dt;
+      if (b.life <= 0) bursts.splice(i, 1);
+    }
+  }
+  function drawBursts() {
+    for (const b of bursts) {
+      ctx.globalAlpha = Math.max(0, b.life / b.max);
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(b.x, b.y, 3 * scale, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- Damage / lives handling (replaces instant gameOver) ----
+  /** Find the nearest pipe still in front of, or overlapping, the bird. */
+  function nearestAheadPipe() {
+    let best = null, bd = Infinity;
+    for (const p of pipes) {
+      if (p.x + PIPE_W < bird.x) continue;       // already fully behind the bird
+      const d = p.x - bird.x;
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+  /** Handle a collision: shield absorbs it, else lose a life (+ grace), or game over. */
+  function onHit(fromGround) {
+    if (invuln > 0) return;                        // still inside grace window
+    if (shield) {                                   // shield charge eats the hit
+      shield = false; invuln = 36;
+      shake = 6; SFX.brk(); spawnBurst(bird.x, bird.y, "#7fe3ff", 18);
+      addPopup("SHIELD!", bird.x, bird.y - 22 * scale, "#7fe3ff");
+      return;
+    }
+    lives--; updateLivesHud();
+    shake = 11; SFX.life(); spawnBurst(bird.x, bird.y, "#ffd1dc", 16);
+    combo = 0;
+    if (lives <= 0) { gameOver(); return; }
+    invuln = INVULN_FRAMES;                         // brief safety to recover
+    if (fromGround) { bird.vy = FLAP * 0.8; }       // bounce off the ground
+    else {
+      const p = nearestAheadPipe();                  // nudge toward gap centre
+      if (p) { const gc = (p.gapTop + p.gapBottom) / 2; bird.y += (gc - bird.y) * 0.25; }
+      bird.vy = -2 * scale;
+    }
+  }
+
+  /** Re-render the lives HUD (filled/lost hearts). */
+  function updateLivesHud() {
+    let html = "";
+    for (let i = 0; i < LIFE_MAX; i++) html += '<span class="life-icon' + (i < lives ? "" : " lost") + '">❤</span>';
+    livesEl.innerHTML = html;
+  }
+
+  // ---- Auto-pilot (cheat: type "flyfly") ----
+  function toggleAutopilot() {
+    autopilot = !autopilot;
+    if (autopilot) { autopilotTagEl.classList.remove("hidden"); addPopup("AUTO-PILOT ON", bird.x, bird.y - 30 * scale, "#7fe3ff"); }
+    else autopilotTagEl.classList.add("hidden");
+  }
+  /** Steer the bird through the next gap centre and (safely) scoop coins.
+   *  Renders the bird collision-proof during auto-pilot: it targets the gap
+   *  centre with a *gentle* flap (bounded overshoot ≈ 24px, well inside the
+   *  ≈79px half-gap) and never detours toward a pipe edge. */
+  function autoPilot() {
+    const effR = birdRadius();
+    // Nearest pipe the bird has not yet fully cleared.
+    let target = null;
+    for (const p of pipes) { if (p.x + PIPE_W > bird.x - effR) { target = p; break; } }
+    const gapCenter = target ? (target.gapTop + target.gapBottom) / 2 : PLAY_H * 0.45;
+    const gapBot = target ? target.gapBottom : PLAY_H;
+    // Coins always spawn at the gap centre, so steering toward a nearby central
+    // coin never pulls the bird toward a pipe edge — it just hones the centre.
+    let ty = gapCenter;
+    let bestCoin = null, bestDx = Infinity;
+    for (const k of pickups) {
+      if (k.kind !== "coin") continue;
+      if (k.x < bird.x - effR || k.x > bird.x + 120 * scale) continue;     // ahead, within reach
+      if (Math.abs(k.y - gapCenter) > 18 * scale) continue;                  // only central coins
+      const dx = k.x - bird.x; if (dx < bestDx) { bestDx = dx; bestCoin = k; }
+    }
+    if (bestCoin) ty = bestCoin.y;
+    // Flap line sits just below the target so the bird noses up to centre; the
+    // gentle flap keeps oscillation inside ±24px and far from either edge.
+    const flapLine = ty + 6 * scale;
+    // Bottom danger net: if descending within ~32px of a pipe lip, flap early.
+    const dangerBot = gapBot - effR - 32 * scale;
+    if (bird.y > flapLine || (bird.vy > 0 && bird.y > dangerBot)) {
+      bird.vy = FLAP * 0.6;
+      flapAnim = 1;
+    }
+  }
+
+  // ---- Medals + pause + mute ----
+  function setMedal(s) {
+    const m = medalFor(s);
+    if (!m) { medalEl.className = "medal empty"; medalEl.textContent = "—"; medalLabelEl.textContent = "no medal"; return; }
+    medalEl.className = "medal";
+    medalEl.style.setProperty("--c1", m.c1);
+    medalEl.style.setProperty("--c2", m.c2);
+    medalEl.textContent = m.icon;
+    medalLabelEl.textContent = m.name;
+  }
+  function togglePause() {
+    if (state === STATE.PLAYING) { state = STATE.PAUSED; pauseScreen.classList.remove("hidden"); SFX.pause(); }
+    else if (state === STATE.PAUSED) { state = STATE.PLAYING; pauseScreen.classList.add("hidden"); SFX.pause(); last = performance.now(); }
+  }
+  function toggleMute() {
+    muted = !muted; saveMuted(muted);
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+    muteBtn.setAttribute("aria-label", muted ? "Unmute (M)" : "Mute (M)");
+    if (!muted) resumeSfx();
+  }
+
   // ============================================================
   //  Input handling — keyboard, mouse & touch flaps
   // ============================================================
-  /** Keyboard flap handler for Space / ArrowUp.
+  /** Keyboard handler: flap, pause, mute, and cheat-code typing.
    * @param {KeyboardEvent} e */
   function onKeyFlap(e) {
+    // Capture letters for the "flyfly" cheat without interfering with action keys.
+    if (e.key && e.key.length === 1 && /[a-z]/i.test(e.key)) {
+      cargo = (cargo + e.key.toLowerCase()).slice(-CHEAT_CODE.length);
+      if (cargo === CHEAT_CODE) { toggleAutopilot(); cargo = ""; return; }
+    }
     if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); onFlap(); }
+    else if (e.code === "KeyP" || e.code === "Escape") { e.preventDefault(); togglePause(); }
+    else if (e.code === "KeyM") { e.preventDefault(); toggleMute(); }
   }
   /** Mouse-press flap handler.
    * @param {MouseEvent} e */
@@ -407,15 +782,26 @@
    * Handle a flap input depending on the current game state.
    */
   function onFlap() {
-    if (state === STATE.START) { startGame(); }
-    if (state === STATE.PLAYING) { bird.vy = FLAP; flapAnim = 1; }
-    if (state === STATE.OVER) return;
+    resumeSfx();                                   // unlock audio on first gesture
+    if (state === STATE.START) { startGame(); return; }
+    if (state === STATE.OVER) {
+      // only restart on an explicit button press or Space (handled by onFlap path)
+      return;
+    }
+    if (state === STATE.PAUSED) { togglePause(); return; }
+    if (state === STATE.PLAYING) {
+      if (autopilot) return;                      // auto-pilot ignores manual flaps
+      bird.vy = FLAP; flapAnim = 1; SFX.flap();
+    }
   }
   window.addEventListener("keydown", onKeyFlap);
   canvas.addEventListener("mousedown", onMouseDown);
   canvas.addEventListener("touchstart", onTouchStart, { passive: false });
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
+  resumeBtn.addEventListener("click", togglePause);
+  pauseBtn.addEventListener("click", togglePause);
+  muteBtn.addEventListener("click", toggleMute);
 
   
   // ============================================================
@@ -436,6 +822,18 @@
     setSeasonBadge(0);
     seasonCache = getSeason(score);   // score just reset to 0 → spring palette
     ensureParticles();
+
+    // ---- New systems reset ----
+    lives = LIFE_MAX; invuln = 0;
+    runCoins = 0; coinsEl.textContent = "🪙 0";
+    pickups = []; combo = 0; bestCombo = 0;
+    shield = false; slowTimer = magnetTimer = miniTimer = doubleTimer = 0;
+    powerCooldown = POWERUP_COOLDOWN;
+    popups = []; bursts = []; shake = 0;
+    autopilot = false; autopilotTagEl.classList.add("hidden");
+    cargo = "";
+    updateLivesHud();
+    updatePowerHud();
   }
   /**
    * Begin a new run: reset, switch to PLAYING, and show the HUD.
@@ -445,9 +843,14 @@
     state = STATE.PLAYING;
     startScreen.classList.add("hidden");
     overScreen.classList.add("hidden");
+    pauseScreen.classList.add("hidden");
     liveScoreEl.classList.remove("hidden");
     seasonTagEl.classList.remove("hidden");
+    hudLeftEl.classList.remove("hidden");
+    hudRightEl.classList.remove("hidden");
     bird.vy = FLAP;
+    resumeSfx();
+    SFX.flap();
   }
   /**
    * End the run: switch to OVER, persist best score, show the game-over screen.
@@ -455,12 +858,24 @@
   function gameOver() {
     state = STATE.OVER;
     flash = 1;
+    autopilotTagEl.classList.add("hidden");
     if (score > best) { best = score; saveBest(best); }
+    coinTotal += runCoins; saveCoins(coinTotal);   // bank this run's coins
+    if (combo > bestCombo) bestCombo = combo;
+    setMedal(score);
     finalScoreEl.textContent = score;
     finalBestEl.textContent = best;
+    finalCoinsEl.textContent = runCoins;
+    finalComboEl.textContent = bestCombo;
     bestStartEl.textContent = best;
     liveScoreEl.classList.add("hidden");
     overScreen.classList.remove("hidden");
+    hudLeftEl.classList.add("hidden");
+    hudRightEl.classList.add("hidden");
+    powerupBarEl.classList.add("hidden");
+    seasonTagEl.classList.add("hidden");
+    SFX.over();
+    if (medalFor(score)) setTimeout(function () { SFX.medal(); }, 220);
   }
   /**
    * Create a pipe pair at column x with a random gap position.
@@ -496,15 +911,30 @@
    * @param {number} dt frame-scaled timestep
    */
   function update(dt) {
+    if (state === STATE.PAUSED) return;            // frozen: nothing advances while paused
     frames++;
-    if (state === STATE.PLAYING) {
-      groundX = (groundX - PIPE_SPEED * dt) % (GROUND_TILE_W * scale);
-    }
-    if (state !== STATE.OVER) { spawnAmbient(dt); }
-    else if (Math.random() < OVER_SPAWN_CHANCE * dt) { particles.push(spawnParticle(particleKind)); }
-    updateParticles(dt);
+    // Timers tick on REAL time so slow-mo doesn't extend itself or invuln.
+    if (invuln > 0) invuln = Math.max(0, invuln - dt);
+    if (slowTimer > 0) slowTimer = Math.max(0, slowTimer - dt);
+    if (magnetTimer > 0) magnetTimer = Math.max(0, magnetTimer - dt);
+    if (miniTimer > 0) miniTimer = Math.max(0, miniTimer - dt);
+    if (doubleTimer > 0) doubleTimer = Math.max(0, doubleTimer - dt);
+    if (powerCooldown > 0) powerCooldown = Math.max(0, powerCooldown - dt);
+    if (shake > 0) shake *= Math.pow(SHAKE_DECAY, dt);
+
+    // World motion runs at slow-mo speed while a Slow power-up is active.
+    const sim = (slowTimer > 0 && state === STATE.PLAYING) ? dt * SLOW_FACTOR : dt;
+
+    if (state === STATE.PLAYING) groundX = (groundX - PIPE_SPEED * sim) % (GROUND_TILE_W * scale);
+    if (state !== STATE.OVER) spawnAmbient(sim);
+    else if (Math.random() < OVER_SPAWN_CHANCE * dt) particles.push(spawnParticle(particleKind));
+    updateParticles(sim);
     ensureParticles();
     updateToast(dt);
+    updatePickups(sim);
+    updatePopups(dt);
+    updateBursts(dt);
+    if (autopilot && state === STATE.PLAYING) autoPilot();
 
     if (state === STATE.START) {
       bird.y = PLAY_H / 2 + Math.sin(frames * BOB_FREQ) * BOB_AMP * scale;
@@ -522,29 +952,52 @@
     }
 
     // PLAYING
-    bird.vy = Math.min(bird.vy + GRAVITY * dt, MAX_FALL);
-    bird.y += bird.vy * dt;
+    const effR = birdRadius();
+    bird.vy = Math.min(bird.vy + GRAVITY * sim, MAX_FALL);
+    bird.y += bird.vy * sim;
     const targetRot = bird.vy < 0 ? FLAP_PITCH : Math.min(bird.vy * ROT_VELOCITY_SLOPE, Math.PI / 2);
-    bird.rot += (targetRot - bird.rot) * ROT_LERP * dt;
-    if (flapAnim > 0) flapAnim = Math.max(0, flapAnim - FLAP_ANIM_DECAY * dt);
+    bird.rot += (targetRot - bird.rot) * ROT_LERP * sim;
+    if (flapAnim > 0) flapAnim = Math.max(0, flapAnim - FLAP_ANIM_DECAY * sim);
 
     for (let i = pipes.length - 1; i >= 0; i--) {
       const p = pipes[i];
-      p.x -= PIPE_SPEED * dt;
+      p.x -= PIPE_SPEED * sim;
       if (!p.scored && p.x + PIPE_W / 2 < bird.x) {
         p.scored = true;
-        score++;
+        score += (doubleTimer > 0) ? 2 : 1;
+        // Perfect-pass combo: bonus + rising pitch when flying through the gap centre.
+        const gapCenter = (p.gapTop + p.gapBottom) / 2;
+        const dist = Math.abs(bird.y - gapCenter);
+        if (dist < PERFECT_RADIUS * scale) {
+          combo++; if (combo > bestCombo) bestCombo = combo;
+          score += Math.min(combo, 5);
+          addPopup("PERFECT x" + combo, p.x + PIPE_W / 2, gapCenter - 14 * scale, "#ffe066");
+        } else { combo = 0; }
         liveScoreEl.textContent = score;
-        seasonCache = getSeason(score);   // recompute blended palette on score change
+        seasonCache = getSeason(score);
         checkSeasonChange(seasonCache.index);
+        SFX.score(combo);
+        addPopup("+" + ((doubleTimer > 0) ? 2 : 1), p.x + PIPE_W / 2, gapCenter, "#ffffff");
       }
       if (p.x + PIPE_W < -PIPE_CULL_PAD) pipes.splice(i, 1);
-      if (hitsPipe(p)) { gameOver(); return; }
+      if (hitsPipe(p)) { onHit(false); if (state === STATE.OVER) return; }
     }
-    const last = pipes[pipes.length - 1];
-    if (last.x < W - PIPE_SPACING) pipes.push(makePipe(W + PIPE_SPAWN_OFFSET));
-    if (bird.y - BIRD_R < 0) { bird.y = BIRD_R; bird.vy = 0; }
-    if (bird.y + BIRD_R >= PLAY_H) { bird.y = PLAY_H - BIRD_R; gameOver(); }
+
+    collectPickups();
+
+    const lp = pipes[pipes.length - 1];
+    if (lp && lp.x < W - PIPE_SPACING) {
+      const np = makePipe(W + PIPE_SPAWN_OFFSET);
+      pipes.push(np);
+      maybeSpawnPickup(np);
+    }
+
+    if (bird.y - effR < 0) { bird.y = effR; bird.vy = 0; }
+    if (bird.y + effR >= PLAY_H) {
+      if (invuln > 0) { bird.y = PLAY_H - effR; bird.vy = 0; }   // grace: clamp only
+      else { bird.y = PLAY_H - effR; onHit(true); if (state === STATE.OVER) return; }
+    }
+    updatePowerHud();
   }
 
   // Takes the current season index as an explicit parameter so the caller's
@@ -561,6 +1014,7 @@
       ensureParticles();
       setSeasonBadge(si);
       showSeasonToast(si);
+      SFX.season();
     }
   }
 
@@ -570,8 +1024,9 @@
    * @returns {boolean}
    */
   function hitsPipe(p) {
-    const overlapX = bird.x + BIRD_R > p.x && bird.x - BIRD_R < p.x + PIPE_W;
-    const overlapY = bird.y - BIRD_R < p.gapTop || bird.y + BIRD_R > p.gapBottom;
+    const r = birdRadius();
+    const overlapX = bird.x + r > p.x && bird.x - r < p.x + PIPE_W;
+    const overlapY = bird.y - r < p.gapTop || bird.y + r > p.gapBottom;
     return overlapX && overlapY;
   }
 
@@ -598,13 +1053,60 @@
    */
   function draw() {
     const seas = seasonCache;
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
     drawSky(seas.palette);
     drawClouds();
     drawParticles();
+    drawPickups();
     drawPipes(seas.index);
     drawGround(seas.palette);
+    // Shield / invulnerability glow ring.
+    if (state === STATE.PLAYING && (invuln > 0 || shield)) {
+      ctx.save(); ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = shield ? "#7fe3ff" : "#ffffff";
+      ctx.lineWidth = 3 * scale;
+      ctx.beginPath(); ctx.arc(bird.x, bird.y, birdRadius() + 6 * scale + Math.sin(frames * 0.3) * 2 * scale, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
+    const blink = (invuln > 0 && state === STATE.PLAYING && Math.floor(frames / 3) % 2 === 0) ? 0.45 : 1;
+    ctx.globalAlpha = blink;
     drawBird(seas.index);
+    ctx.globalAlpha = 1;
+    drawBursts();
+    drawPopups();
+    ctx.restore();
     if (flash > 0) { ctx.fillStyle = "rgba(255,255,255," + flash + ")"; ctx.fillRect(0, 0, W, H); }
+  }
+
+  /** Render all coins + power-up pickups. */
+  function drawPickups() {
+    for (const k of pickups) {
+      if (k.kind === "coin") {
+        ctx.save(); ctx.translate(k.x, k.y);
+        const g = ctx.createRadialGradient(-k.r * 0.3, -k.r * 0.3, k.r * 0.2, 0, 0, k.r);
+        g.addColorStop(0, "#fff0a0"); g.addColorStop(1, "#f0a020");
+        ctx.fillStyle = g; ctx.strokeStyle = "#a06010"; ctx.lineWidth = 1.5 * scale;
+        ctx.beginPath(); ctx.arc(0, 0, k.r, 0, TAU); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#b5700a"; ctx.font = "bold " + (k.r * 1.1) + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("$", 0, k.r * 0.05);
+        ctx.restore();
+      } else {
+        const meta = POWER_META[k.type] || POWER_META.shield;
+        ctx.save(); ctx.translate(k.x, k.y);
+        ctx.globalAlpha = 0.9;
+        ctx.shadowColor = meta.bar; ctx.shadowBlur = 14 * scale;
+        ctx.fillStyle = "rgba(255,255,255,0.16)";
+        ctx.beginPath(); ctx.arc(0, 0, k.r, 0, TAU); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = meta.bar;
+        ctx.beginPath(); ctx.arc(0, 0, k.r * 0.66, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.font = (k.r) + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(meta.icon, 0, 0);
+        ctx.restore();
+      }
+    }
   }
 
   /**
@@ -857,6 +1359,7 @@
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.rot);
+    if (miniTimer > 0) { ctx.scale(MINI_SCALE, MINI_SCALE); }
     (BIRD_DRAWERS[BIRD_STYLES[index]] || drawPenguin)();
     ctx.restore();
   }
@@ -991,9 +1494,10 @@
   // ============================================================
   const MS_PER_FRAME = 1000 / 60; // convert elapsed ms to 60fps-normalized frame units
   const MAX_DT = 3;               // clamp giant frame gaps (tab switches) so nothing jumps
-  /** Reset the frame clock when the tab becomes visible again. */
+  /** Auto-pause when the tab is hidden; reset the frame clock on return. */
   function onVisibilityChange() {
-    if (!document.hidden) last = performance.now();
+    if (document.hidden) { if (state === STATE.PLAYING) togglePause(); }
+    else { last = performance.now(); }
   }
   let last = performance.now();
   // Reset the frame clock when the tab returns to the foreground, so the first
@@ -1014,28 +1518,13 @@
   }
 
   // ============================================================
-  //  Scoring & persistence — localStorage best score
-  // ============================================================
-  /**
-   * Load the persisted best score from localStorage (0 on failure).
-   * @returns {number}
-   */
-  function loadBest() {
-    try { return parseInt(localStorage.getItem(BEST_KEY), 10) || 0; }
-    catch (e) { console.error("loadBest failed", e); return 0; } // localStorage unavailable → start fresh at 0
-  }
-  /**
-   * Persist the best score to localStorage, best-effort.
-   * @param {number} v score to save
-   */
-  function saveBest(v) {
-    try { localStorage.setItem(BEST_KEY, String(v)); }
-    catch (e) { console.error("saveBest failed", e); } // best-effort: persistence must never crash the game loop
-  }
-  // ============================================================
-  //  Initialization — bootstrapping (load best, size, reset, start loop)
+  //  Initialization — bootstrapping (load best/coins/mute, size, reset, loop)
   // ============================================================
   best = loadBest();
+  coinTotal = loadCoins();
+  muted = loadMuted();
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  muteBtn.setAttribute("aria-label", muted ? "Unmute (M)" : "Mute (M)");
   bestStartEl.textContent = best;
   resize();
   resetGame();
