@@ -107,12 +107,25 @@
     return { r: (n>>16)&255, g: (n>>8)&255, b: n&255 };
   }
   function lerp(a, b, t) { return a + (b - a) * t; }
-  function lerpColor(c1, c2, t) {
-    const a = hexToRgb(c1), b = hexToRgb(c2);
-    return "rgb("+Math.round(lerp(a.r,b.r,t))+","+Math.round(lerp(a.g,b.g,t))+","+Math.round(lerp(a.b,b.b,t))+")";
+
+  // Season palettes are static, so parse each hex → RGB once at init instead of
+  // re-parsing on every blend. Blends then do only integer arithmetic and emit
+  // the same "rgb(r,g,b)" string shape that drawSky/drawGround expect.
+  const PALETTES_RGB = {};
+  for (let pi = 0; pi < SEASONS.length; pi++) {
+    const key = SEASONS[pi], src = PALETTES[key], out = PALETTES_RGB[key] = {};
+    for (const ck in src) { if (Object.prototype.hasOwnProperty.call(src, ck)) out[ck] = hexToRgb(src[ck]); }
+  }
+  function rgbStr(c) { return "rgb(" + c.r + "," + c.g + "," + c.b + ")"; }
+  function blendColor(a, b, t) {
+    return rgbStr({ r: Math.round(lerp(a.r, b.r, t)),
+                    g: Math.round(lerp(a.g, b.g, t)),
+                    b: Math.round(lerp(a.b, b.b, t)) });
   }
 
   // Returns blended palette for current score + dominant season index.
+  // Pure function of `score`, so it is cached in `seasonCache` and recomputed
+  // only when the score changes (scoring path + resetGame) — never per frame.
   function getSeason(scoreVal) {
     let i = 0;
     while (i < SEASON_SCORES.length - 1 && scoreVal >= SEASON_SCORES[i + 1]) i++;
@@ -126,13 +139,13 @@
         if (t > 1) t = 1;
       }
     }
-    const pa = PALETTES[SEASONS[a]], pb = PALETTES[SEASONS[b]];
+    const pa = PALETTES_RGB[SEASONS[a]], pb = PALETTES_RGB[SEASONS[b]];
     const palette = {
-      skyTop: lerpColor(pa.skyTop, pb.skyTop, t),
-      skyBot: lerpColor(pa.skyBot, pb.skyBot, t),
-      grassTop: lerpColor(pa.grassTop, pb.grassTop, t),
-      grassBot: lerpColor(pa.grassBot, pb.grassBot, t),
-      dirt: lerpColor(pa.dirt, pb.dirt, t),
+      skyTop: blendColor(pa.skyTop, pb.skyTop, t),
+      skyBot: blendColor(pa.skyBot, pb.skyBot, t),
+      grassTop: blendColor(pa.grassTop, pb.grassTop, t),
+      grassBot: blendColor(pa.grassBot, pb.grassBot, t),
+      dirt: blendColor(pa.dirt, pb.dirt, t),
     };
     // Index tracks the "official" current season (the one whose threshold
     // the score has reached): colors blend toward the *next* season in the
@@ -140,6 +153,10 @@
     // only switch over when the season truly arrives.
     return { palette: palette, index: i };
   }
+
+  // Cached { palette, index }. Updated only when the score changes; draw() and
+  // checkSeasonChange() read this instead of recomputing the blend every frame.
+  let seasonCache = getSeason(0);
 
   // ---- Season-change toast ----
   let toastTimer = 0;
@@ -213,12 +230,12 @@
     }
   }
 
+  // Lookup table instead of a per-particle if/else string chain (≈36 draws/frame).
+  const PARTICLE_DRAWERS = { petal: drawPetal, pollen: drawPollen, leaf: drawLeaf, snow: drawSnow };
   function drawParticles() {
-    for (const p of particles) {
-      if (p.kind === "petal") drawPetal(p);
-      else if (p.kind === "pollen") drawPollen(p);
-      else if (p.kind === "leaf") drawLeaf(p);
-      else drawSnow(p);
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      (PARTICLE_DRAWERS[p.kind] || drawSnow)(p);
     }
   }
   function drawPetal(p) {
@@ -287,6 +304,7 @@
     particleKind = PARTICLE_KINDS.spring;
     particles = [];
     setSeasonBadge(0);
+    seasonCache = getSeason(score);   // score just reset to 0 → spring palette
     ensureParticles();
   }
   function startGame() {
@@ -355,7 +373,8 @@
         p.scored = true;
         score++;
         liveScoreEl.textContent = score;
-        checkSeasonChange();
+        seasonCache = getSeason(score);   // recompute blended palette on score change
+        checkSeasonChange(seasonCache.index);
       }
       if (p.x + PIPE_W < -10) pipes.splice(i, 1);
       if (hitsPipe(p)) { gameOver(); return; }
@@ -366,8 +385,9 @@
     if (bird.y + BIRD_R >= PLAY_H) { bird.y = PLAY_H - BIRD_R; gameOver(); }
   }
 
-  function checkSeasonChange() {
-    const si = getSeason(score).index;
+  // Takes the current season index as an explicit parameter so the caller's
+  // obligation to refresh seasonCache first is visible, not hidden.
+  function checkSeasonChange(si) {
     if (si !== lastSeasonIndex) {
       lastSeasonIndex = si;
       particleKind = PARTICLE_KINDS[SEASONS[si]];
@@ -386,7 +406,7 @@
 
   // ---- Render ----
   function draw() {
-    const seas = getSeason(score);
+    const seas = seasonCache;
     drawSky(seas.palette);
     drawClouds();
     drawParticles();
@@ -428,11 +448,9 @@
       drawPipe(p.x, p.gapBottom, PIPE_W, PLAY_H - p.gapBottom, false, style);
     }
   }
+  const PIPE_DRAWERS = { wood: drawWoodPipe, concrete: drawConcretePipe, brick: drawBrickPipe, ice: drawIcePipe };
   function drawPipe(x, y, w, h, isTop, style) {
-    if (style === "wood") drawWoodPipe(x, y, w, h, isTop);
-    else if (style === "concrete") drawConcretePipe(x, y, w, h, isTop);
-    else if (style === "brick") drawBrickPipe(x, y, w, h, isTop);
-    else drawIcePipe(x, y, w, h, isTop);
+    (PIPE_DRAWERS[style] || drawIcePipe)(x, y, w, h, isTop);
   }
 
   // Shared lip geometry so every material has the same opening shape/hitbox.
@@ -568,15 +586,12 @@
     }
   }
 
+  const BIRD_DRAWERS = { songbird: drawSongbird, parrot: drawParrot, owl: drawOwl, penguin: drawPenguin };
   function drawBird(index) {
-    const style = BIRD_STYLES[index];
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.rot);
-    if (style === "songbird") drawSongbird();
-    else if (style === "parrot") drawParrot();
-    else if (style === "owl") drawOwl();
-    else drawPenguin();
+    (BIRD_DRAWERS[BIRD_STYLES[index]] || drawPenguin)();
     ctx.restore();
   }
 
@@ -695,9 +710,15 @@
 
   // ---- Loop ----
   let last = performance.now();
+  // Reset the frame clock when the tab returns to the foreground, so the first
+  // visible frame doesn't apply a huge clamped dt that jumps bird/pipes/particles.
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) last = performance.now();
+  });
   function loop(now) {
     let dt = (now - last) / (1000 / 60);
     last = now;
+    if (dt < 0) dt = 0;
     if (dt > 3) dt = 3;
     update(dt);
     draw();
