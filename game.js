@@ -235,7 +235,7 @@
   function drawParticles() {
     for (let i = 0; i < particles.length; i++) {
       const p = particles[i];
-      PARTICLE_DRAWERS[p.kind](p);
+      (PARTICLE_DRAWERS[p.kind] || drawSnow)(p);
     }
   }
   function drawPetal(p) {
@@ -374,7 +374,7 @@
         score++;
         liveScoreEl.textContent = score;
         seasonCache = getSeason(score);   // recompute blended palette on score change
-        checkSeasonChange();
+        checkSeasonChange(seasonCache.index);
       }
       if (p.x + PIPE_W < -10) pipes.splice(i, 1);
       if (hitsPipe(p)) { gameOver(); return; }
@@ -385,8 +385,9 @@
     if (bird.y + BIRD_R >= PLAY_H) { bird.y = PLAY_H - BIRD_R; gameOver(); }
   }
 
-  function checkSeasonChange() {
-    const si = seasonCache.index;   // getSeason already recomputed above
+  // Takes the current season index as an explicit parameter so the caller's
+  // obligation to refresh seasonCache first is visible, not hidden.
+  function checkSeasonChange(si) {
     if (si !== lastSeasonIndex) {
       lastSeasonIndex = si;
       particleKind = PARTICLE_KINDS[SEASONS[si]];
@@ -449,7 +450,7 @@
   }
   const PIPE_DRAWERS = { wood: drawWoodPipe, concrete: drawConcretePipe, brick: drawBrickPipe, ice: drawIcePipe };
   function drawPipe(x, y, w, h, isTop, style) {
-    PIPE_DRAWERS[style](x, y, w, h, isTop);
+    (PIPE_DRAWERS[style] || drawIcePipe)(x, y, w, h, isTop);
   }
 
   // Shared lip geometry so every material has the same opening shape/hitbox.
@@ -590,7 +591,7 @@
     ctx.save();
     ctx.translate(bird.x, bird.y);
     ctx.rotate(bird.rot);
-    BIRD_DRAWERS[BIRD_STYLES[index]]();
+    (BIRD_DRAWERS[BIRD_STYLES[index]] || drawPenguin)();
     ctx.restore();
   }
 
