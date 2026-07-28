@@ -417,6 +417,7 @@
   document.getElementById("start-btn").addEventListener("click", startGame);
   document.getElementById("restart-btn").addEventListener("click", startGame);
 
+  
   // ============================================================
   //  Game state transitions — reset / start / game over
   // ============================================================
