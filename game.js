@@ -11,7 +11,7 @@
   const BASE_H = 600;
 
   let W = BASE_W, H = BASE_H;
-  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
   // Lifted magic numbers into named constants (see .sarvam/skills/clean-code/SKILL.md).
   const TAU = Math.PI * 2;          // full circle — end angle for every ellipse()/arc() call below
