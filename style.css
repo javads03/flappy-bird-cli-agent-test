@@ -1,17 +1,79 @@
-* { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
+/* ================================================================
+ * Flappy Bird · Seasons — stylesheet
+ *
+ * Sections:
+ *   1. Custom Properties (theme tokens)
+ *   2. Reset & Base
+ *   3. Layout (game container / canvas wrap / canvas)
+ *   4. Overlays (start & game-over screens)
+ *   5. Overlay typography (h1, h2, sub, hint, kbd, best)
+ *   6. Buttons & focus states
+ *   7. Scoreboard panel
+ *   8. Live score (during play)
+ *   9. Season badge
+ *  10. Season-change toast
+ * ================================================================ */
+
+/* ----------------------------------------------------------------
+ * 1. Custom Properties — color palette & shared sizes.
+ *    Tweak these to retheme the whole UI in one place.
+ * ---------------------------------------------------------------- */
+:root {
+  /* Core palette */
+  --color-bg:        #4ec0ca;            /* app background (summer sky tone) */
+  --color-text:      #ffffff;
+  --color-accent:    #ffcf3f;            /* gold (start screen title) */
+  --color-accent-dk: #b5730f;            /* dark gold (title + button relief) */
+  --color-over:      #ff5a5a;            /* red (game-over title) */
+  --color-over-dk:   #8b0000;            /* dark red (over title relief) */
+  --color-sub:       #eafbe6;            /* season subtitle */
+
+  /* Button */
+  --btn-from:        #ffb43f;
+  --btn-to:          #f5941a;
+  --btn-shadow:      #b5730f;
+  --btn-radius:      10px;
+
+  /* Surfaces */
+  --overlay-bg:      rgba(0, 0, 0, 0.32);
+  --overlay-blur:    2px;
+  --panel-bg:        rgba(255, 255, 255, 0.12);
+  --panel-border:    rgba(255, 255, 255, 0.25);
+  --panel-radius:    12px;
+  --badge-bg:        rgba(0, 0, 0, 0.28);
+  --badge-border:    rgba(255, 255, 255, 0.3);
+  --badge-radius:    999px;
+
+  /* Effects */
+  --shadow-text:     rgba(0, 0, 0, 0.45);
+  --btn-shadow-3d:   0 5px 0 var(--btn-shadow), 0 8px 14px rgba(0, 0, 0, 0.3);
+  --btn-shadow-press:0 1px 0 var(--btn-shadow), 0 3px 6px rgba(0, 0, 0, 0.3);
+
+  /* Focus ring for keyboard users */
+  --focus-outline:   3px solid #ffffff;
+  --focus-offset:    2px;
+}
+
+/* ----------------------------------------------------------------
+ * 2. Reset & Base
+ * ---------------------------------------------------------------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
   height: 100%;
   width: 100%;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: #4ec0ca;
+  background: var(--color-bg);
+  color: var(--color-text);
   overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Full-window layout */
+/* ----------------------------------------------------------------
+ * 3. Layout — full-window centered container wrapping the canvas
+ * ---------------------------------------------------------------- */
 .game-container {
   position: fixed;
   inset: 0;
@@ -33,7 +95,9 @@ html, body {
   height: 100%;
 }
 
-/* Overlays */
+/* ----------------------------------------------------------------
+ * 4. Overlays — start & game-over screens, absolutely centered
+ * ---------------------------------------------------------------- */
 .overlay {
   position: absolute;
   inset: 0;
@@ -43,32 +107,37 @@ html, body {
   align-items: center;
   gap: 18px;
   text-align: center;
-  background: rgba(0,0,0,0.32);
-  color: #fff;
+  background: var(--overlay-bg);
+  color: var(--color-text);
   padding: 24px;
-  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(var(--overlay-blur));
+  backdrop-filter: blur(var(--overlay-blur));
 }
 
+/* `.hidden` fully removes an element from layout AND the a11y tree. */
 .overlay.hidden { display: none; }
 
+/* ----------------------------------------------------------------
+ * 5. Overlay typography
+ * ---------------------------------------------------------------- */
 .overlay h1 {
   font-size: clamp(34px, 7vw, 64px);
   letter-spacing: 3px;
-  color: #ffcf3f;
-  text-shadow: 3px 3px 0 #b5730f, -1px -1px 0 rgba(0,0,0,0.3);
+  color: var(--color-accent);
+  text-shadow: 3px 3px 0 var(--color-accent-dk), -1px -1px 0 rgba(0, 0, 0, 0.3);
 }
 
 .overlay h2 {
   font-size: clamp(30px, 6vw, 54px);
   letter-spacing: 2px;
-  color: #ff5a5a;
-  text-shadow: 3px 3px 0 #8b0000;
+  color: var(--color-over);
+  text-shadow: 3px 3px 0 var(--color-over-dk);
 }
 
 .season-sub {
   font-size: clamp(13px, 2.4vw, 18px);
   letter-spacing: 1px;
-  color: #eafbe6;
+  color: var(--color-sub);
   opacity: 0.95;
 }
 
@@ -86,18 +155,27 @@ html, body {
   box-shadow: 0 2px 0 #999;
 }
 
+.best {
+  font-size: clamp(15px, 2.8vw, 19px);
+  font-weight: 600;
+  opacity: 0.95;
+}
+
+/* ----------------------------------------------------------------
+ * 6. Buttons & focus states
+ * ---------------------------------------------------------------- */
 .btn {
   font-family: inherit;
   font-size: clamp(18px, 3.4vw, 22px);
   font-weight: 700;
   letter-spacing: 1px;
-  color: #fff;
-  background: linear-gradient(180deg, #ffb43f 0%, #f5941a 100%);
+  color: var(--color-text);
+  background: linear-gradient(180deg, var(--btn-from) 0%, var(--btn-to) 100%);
   border: none;
-  border-radius: 10px;
+  border-radius: var(--btn-radius);
   padding: 12px 40px;
   cursor: pointer;
-  box-shadow: 0 5px 0 #b5730f, 0 8px 14px rgba(0,0,0,0.3);
+  box-shadow: var(--btn-shadow-3d);
   transition: transform 0.08s, box-shadow 0.08s;
 }
 
@@ -105,19 +183,23 @@ html, body {
 
 .btn:active {
   transform: translateY(4px);
-  box-shadow: 0 1px 0 #b5730f, 0 3px 6px rgba(0,0,0,0.3);
+  box-shadow: var(--btn-shadow-press);
 }
 
-.best {
-  font-size: clamp(15px, 2.8vw, 19px);
-  font-weight: 600;
-  opacity: 0.95;
+/* Keyboard focus ring — visible only for keyboard navigation, never on
+   mouse/touch interaction, and independent of the 3D box-shadow. */
+.btn:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-offset);
 }
 
+/* ----------------------------------------------------------------
+ * 7. Scoreboard panel (game-over score/best)
+ * ---------------------------------------------------------------- */
 .scoreboard {
-  background: rgba(255,255,255,0.12);
-  border: 2px solid rgba(255,255,255,0.25);
-  border-radius: 12px;
+  background: var(--panel-bg);
+  border: 2px solid var(--panel-border);
+  border-radius: var(--panel-radius);
   padding: 14px 30px;
   min-width: 190px;
   display: flex;
@@ -133,9 +215,15 @@ html, body {
   font-weight: 700;
 }
 
-.score-row span:first-child { opacity: 0.8; font-size: clamp(14px, 2.6vw, 17px); font-weight: 600; }
+.score-row span:first-child {
+  opacity: 0.8;
+  font-size: clamp(14px, 2.6vw, 17px);
+  font-weight: 600;
+}
 
-/* Live score during play */
+/* ----------------------------------------------------------------
+ * 8. Live score (shown during play)
+ * ---------------------------------------------------------------- */
 .live-score {
   position: absolute;
   top: 4vh;
@@ -143,14 +231,16 @@ html, body {
   transform: translateX(-50%);
   font-size: clamp(40px, 9vw, 64px);
   font-weight: 800;
-  color: #fff;
-  text-shadow: 3px 3px 0 rgba(0,0,0,0.45);
+  color: var(--color-text);
+  text-shadow: 3px 3px 0 var(--shadow-text);
   pointer-events: none;
 }
 
 .live-score.hidden { display: none; }
 
-/* Season indicator badge */
+/* ----------------------------------------------------------------
+ * 9. Season badge (current-season pill, top-left during play)
+ * ---------------------------------------------------------------- */
 .season-tag {
   position: absolute;
   top: 4vh;
@@ -158,19 +248,28 @@ html, body {
   font-size: clamp(13px, 2.6vw, 17px);
   font-weight: 700;
   letter-spacing: 1px;
-  color: #fff;
-  background: rgba(0,0,0,0.28);
-  border: 1px solid rgba(255,255,255,0.3);
+  color: var(--color-text);
+  background: var(--badge-bg);
+  border: 1px solid var(--badge-border);
   padding: 6px 14px;
-  border-radius: 999px;
-  text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
+  border-radius: var(--badge-radius);
+  text-shadow: 1px 1px 0 var(--shadow-text);
   pointer-events: none;
   transition: opacity 0.4s;
 }
 
 .season-tag.hidden { display: none; }
 
-/* Season-change toast */
+/* ----------------------------------------------------------------
+ * 10. Season-change toast
+ *
+ *     Visibility is driven ONLY by the `.show` class. The element is
+ *     always display:block (opacity:0 when idle), so the opacity +
+ *     transform transitions can animate in BOTH directions — adding a
+ *     `.hidden { display:none }` rule would short-circuit the fade-out
+ *     and is deliberately omitted. The markup starts with no `.show`
+ *     so the toast is invisible on load.
+ * ---------------------------------------------------------------- */
 .season-toast {
   position: absolute;
   top: 38%;
@@ -179,8 +278,8 @@ html, body {
   font-size: clamp(34px, 8vw, 72px);
   font-weight: 800;
   letter-spacing: 4px;
-  color: #fff;
-  text-shadow: 3px 3px 0 rgba(0,0,0,0.45), 0 0 22px rgba(255,255,255,0.4);
+  color: var(--color-text);
+  text-shadow: 3px 3px 0 var(--shadow-text), 0 0 22px rgba(255, 255, 255, 0.4);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.18, 0.9, 0.3, 1.2);
@@ -191,5 +290,3 @@ html, body {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
 }
-
-.season-toast.hidden { display: none; }
