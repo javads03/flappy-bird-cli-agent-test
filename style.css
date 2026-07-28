@@ -114,8 +114,12 @@ html, body {
   backdrop-filter: blur(var(--overlay-blur));
 }
 
-/* `.hidden` fully removes an element from layout AND the a11y tree. */
+/* `.hidden` fully removes an element from layout AND the a11y tree, but is
+   deliberately per-element: the season-toast fades via opacity and must NOT be
+   hit by a global `display:none` (see §10). Only elements that fully vanish use it. */
 .overlay.hidden { display: none; }
+.hud-left.hidden, .hud-right.hidden, .powerup-bar.hidden { display: none; }
+.autopilot-tag.hidden { display: none; }
 
 /* ----------------------------------------------------------------
  * 5. Overlay typography
@@ -289,4 +293,214 @@ html, body {
 .season-toast.show {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
+}
+
+/* ----------------------------------------------------------------
+ * 11. In-game HUD (lives + coins, top-left)
+ * ---------------------------------------------------------------- */
+.hud-left {
+  position: absolute;
+  top: 4vh;
+  left: 4vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.lives {
+  display: flex;
+  gap: 3px;
+  font-size: clamp(16px, 3.4vw, 22px);
+  filter: drop-shadow(2px 2px 0 var(--shadow-text));
+  line-height: 1;
+}
+.life-icon {
+  transition: opacity 0.25s, transform 0.25s;
+}
+.life-icon.lost {
+  opacity: 0.15;
+  transform: scale(0.7);
+}
+
+.coins {
+  font-size: clamp(14px, 3vw, 18px);
+  font-weight: 700;
+  color: #ffe066;
+  text-shadow: 2px 2px 0 var(--shadow-text);
+  letter-spacing: 0.5px;
+}
+.coins .coin-coin { filter: drop-shadow(0 0 4px rgba(255, 211, 63, 0.6)); }
+
+/* ----------------------------------------------------------------
+ * 12. Top-right controls (pause + mute)
+ * ---------------------------------------------------------------- */
+.hud-right {
+  position: absolute;
+  top: 4vh;
+  right: 4vh;
+  display: flex;
+  gap: 8px;
+  z-index: 6;
+}
+
+.icon-btn {
+  width: clamp(34px, 7vw, 46px);
+  height: clamp(34px, 7vw, 46px);
+  border-radius: 50%;
+  border: 2px solid var(--panel-border);
+  background: var(--panel-bg);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  color: var(--color-text);
+  font-size: clamp(16px, 3.2vw, 20px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.icon-btn:active { transform: scale(0.9); }
+.icon-btn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
+
+/* ----------------------------------------------------------------
+ * 13. Power-up status pills (under live score, top-center)
+ * ---------------------------------------------------------------- */
+.powerup-bar {
+  position: absolute;
+  top: 13vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 6;
+  pointer-events: none;
+  min-width: 180px;
+}
+
+.pu-pill {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--badge-bg);
+  border: 1px solid var(--badge-border);
+  border-radius: var(--badge-radius);
+  padding: 5px 14px;
+  font-size: clamp(12px, 2.4vw, 15px);
+  font-weight: 700;
+  color: var(--color-text);
+  text-shadow: 1px 1px 0 var(--shadow-text);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  min-width: 160px;
+  justify-content: space-between;
+}
+
+.pu-pill .pu-icon { font-size: 1.2em; line-height: 1; }
+.pu-pill .pu-name { flex: 1; text-align: left; }
+.pu-pill .pu-time {
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+.pu-pill .pu-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  transition: width 0.1s linear;
+}
+
+/* Individual pill tint flavours */
+.pu-pill.bar-shield  .pu-bar { background: #7fe3ff; box-shadow: 0 0 6px #7fe3ff; }
+.pu-pill.bar-slow    .pu-bar { background: #ffd33f; box-shadow: 0 0 6px #ffd33f; }
+.pu-pill.bar-magnet  .pu-bar { background: #ff8fc0; box-shadow: 0 0 6px #ff8fc0; }
+.pu-pill.bar-mini    .pu-bar { background: #ffe066; box-shadow: 0 0 6px #ffe066; }
+.pu-pill.bar-double  .pu-bar { background: #b08bff; box-shadow: 0 0 6px #b08bff; }
+
+/* ----------------------------------------------------------------
+ * 14. Auto-pilot tag
+ * ---------------------------------------------------------------- */
+.autopilot-tag {
+  position: absolute;
+  bottom: 14vh;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(13px, 2.8vw, 18px);
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #7fe3ff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #7fe3ff;
+  border-radius: var(--badge-radius);
+  padding: 6px 16px;
+  text-shadow: 0 0 8px rgba(127, 227, 255, 0.6);
+  pointer-events: none;
+  z-index: 6;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.65; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.04); }
+}
+
+/* ----------------------------------------------------------------
+ * 15. Medal (game-over award)
+ * ---------------------------------------------------------------- */
+.medal-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  min-height: 84px;
+}
+
+.medal {
+  width: clamp(60px, 13vw, 78px);
+  height: clamp(60px, 13vw, 78px);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(28px, 6vw, 40px);
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.25), 0 6px 14px rgba(0, 0, 0, 0.4),
+    inset 0 3px 6px rgba(255, 255, 255, 0.5), inset 0 -4px 8px rgba(0, 0, 0, 0.15);
+  background: linear-gradient(145deg, var(--c1, #cd7f32), var(--c2, #8a4f1a));
+}
+.medal.empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.15);
+}
+.medal-label {
+  font-size: clamp(11px, 2.2vw, 14px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--color-sub);
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+/* ----------------------------------------------------------------
+ * 16. Start-screen sub-hint
+ * ---------------------------------------------------------------- */
+.sub-hint {
+  font-size: clamp(11px, 2.2vw, 14px);
+  opacity: 0.7;
+  margin-top: -8px;
+}
+.sub-hint strong {
+  color: #7fe3ff;
+  font-family: monospace;
+  letter-spacing: 0.5px;
 }
