@@ -3,37 +3,45 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Flappy Bird · Seasons — a lightweight, vanilla-JS arcade game. Tap, click, or press Space to flap through four changing seasons as your score climbs." />
+  <meta name="theme-color" content="#4ec0ca" />
   <title>Flappy Bird · Seasons</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="game-container">
     <div class="canvas-wrap">
-      <canvas id="game"></canvas>
+      <!-- The canvas is the game surface itself; it is keyboard/mouse/touch
+           interactive, so it gets a descriptive label rather than aria-hidden. -->
+      <canvas id="game" role="img" aria-label="Flappy Bird game playfield. Tap, click, or press the Space or Up Arrow key to flap the bird upward."></canvas>
 
       <!-- Start screen -->
-      <div id="start-screen" class="overlay">
-        <h1>FLAPPY BIRD</h1>
+      <div id="start-screen" class="overlay" role="dialog" aria-modal="true" aria-labelledby="start-title">
+        <h1 id="start-title">FLAPPY BIRD</h1>
         <p class="season-sub">Four seasons await as you score</p>
         <p class="hint">Tap, click, or press <kbd>Space</kbd> to flap</p>
-        <button id="start-btn" class="btn">START</button>
+        <button id="start-btn" class="btn" type="button" aria-label="Start game">START</button>
         <p class="best">Best: <span id="best-start">0</span></p>
       </div>
 
       <!-- Game over screen -->
-      <div id="over-screen" class="overlay hidden">
-        <h2>GAME OVER</h2>
-        <div class="scoreboard">
+      <div id="over-screen" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="over-title">
+        <h2 id="over-title">GAME OVER</h2>
+        <div class="scoreboard" role="group" aria-label="Final score">
           <div class="score-row"><span>Score</span><span id="final-score">0</span></div>
           <div class="score-row"><span>Best</span><span id="final-best">0</span></div>
         </div>
-        <button id="restart-btn" class="btn">RETRY</button>
+        <button id="restart-btn" class="btn" type="button" aria-label="Play again">RETRY</button>
       </div>
 
       <!-- Live score + season indicator -->
-      <div id="live-score" class="live-score hidden">0</div>
-      <div id="season-tag" class="season-tag hidden">Spring</div>
-      <div id="season-toast" class="season-toast hidden"></div>
+      <div id="live-score" class="live-score hidden" role="status" aria-live="polite" aria-atomic="true" aria-label="Current score">0</div>
+      <!-- Decorative season badge; the live-score + dialogs already convey
+           game state to assistive tech, so the badge itself is hidden from AT. -->
+      <div id="season-tag" class="season-tag hidden" aria-hidden="true">Spring</div>
+      <!-- Season-change toast is a transient visual flourish; the .show class
+           controls its fade (never toggled with display:none, see style.css). -->
+      <div id="season-toast" class="season-toast" aria-hidden="true"></div>
     </div>
   </div>
 
